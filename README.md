@@ -72,7 +72,7 @@ graph LR
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/motia-surge-pricing.git
+git clone https://github.com/abhasgawali/SurgePricingEngine.git
 cd motia-surge-pricing
 ```
 
