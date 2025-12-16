@@ -1,106 +1,83 @@
 # Motia Surge Pricing Engine
 
-> **A real-time, event-driven pricing engine powered by Motia and Google Gemini 2.5 Flash.**
+> **A real-time, event-driven pricing system powered by Google Gemini 2.5 Flash and Motia.**
 
-![Backend](https://img.shields.io/badge/Backend-Motia-blueviolet?style=flat-square)
+![Motia](https://img.shields.io/badge/Backend-Motia-blueviolet?style=flat-square)
 ![AI](https://img.shields.io/badge/AI-Gemini_2.5_Flash-4285F4?style=flat-square)
-![Language](https://img.shields.io/badge/Language-TypeScript-blue?style=flat-square)
-![Architecture](https://img.shields.io/badge/Architecture-Event--Driven-orange?style=flat-square)
+![TypeScript](https://img.shields.io/badge/Language-TypeScript-blue?style=flat-square)
 
----
+## 📖 Overview
 
-## Overview
+This project implements an autonomous pricing agent that adjusts product prices in real-time based on market signals (demand surges, competitor undercutting, and stock depletion).
 
-This project implements an **autonomous surge pricing engine** that dynamically adjusts product prices in real time based on incoming market signals such as demand surges, competitor price changes, and inventory pressure.
+Unlike traditional rule-based engines, this system uses **Generative AI** to analyze the context and provide a human-readable explanation for every pricing decision, making the logic transparent and audit-proof.
 
-Unlike traditional rule-based systems, this engine leverages **Generative AI** to reason about market context and produce **explainable pricing decisions**. Every price change includes human-readable reasoning, ensuring transparency and auditability.
+## 🏗 Architecture
 
----
-
-## Architecture
-
-The system is built on a **strict Event-Driven Architecture (EDA)** orchestrated by the Motia runtime.
+The system follows a strict Event-Driven Architecture (EDA) orchestrated by the Motia runtime.
 
 ```mermaid
 graph LR
-    Input[API: /simulate] -->|market.signal| Agent[Pricing Agent]
-    Agent -->|Read State| State[(Motia KV Store)]
+    Input[API: /simulate] -->|Event: market.signal| Agent{Pricing Agent}
+    Agent -->|Fetch Context| State[(Motia KV Store)]
     Agent -->|Prompt| AI[Gemini 2.5 Flash]
-    AI -->|Decision + Reasoning| Agent
-    Agent -->|price.updated| Stream[Dashboard Stream]
-    Stream -->|WebSocket| Client[Frontend UI]
+    AI -->|Decision| Agent
+    Agent -->|Event: price.updated| Stream[Dashboard Stream]
+    Stream -->|Push| Client[Frontend UI]
 ```
 
----
+## 🔧 Core Components
 
-## Core Components
+### 1. Signal Ingestion (`simulate.step.ts`)
 
-### 1. Signal Ingestion — `simulate.step.ts`
+* Exposes a REST API to inject market events manually
+* Validates input using Zod before emitting `market.signal`
 
-* Exposes a REST endpoint to inject market signals
-* Validates request payloads using **Zod**
-* Emits `market.signal` events into the Motia event loop
+### 2. The Intelligence Layer (`pricing-agent.step.ts`)
 
----
+* Subscribes to `market.signal`
+* Retrieves persistent state (Current Price, Competitor Price, Stock)
+* Prompts **Gemini 2.5 Flash** to act as a Revenue Manager
+* Decides on price changes and generates reasoning
 
-### 2. Intelligence Layer — `pricing-agent.step.ts`
-
-* Subscribes to `market.signal` events
-* Retrieves persistent context (current price, competitor price, stock level)
-* Prompts **Gemini 2.5 Flash** to act as a revenue optimization agent
-* Produces price decisions with clear reasoning
-
----
-
-### 3. Real-Time Delivery — `dashboard.stream.ts`
+### 3. Real-time Delivery (`dashboard.stream.ts`)
 
 * Subscribes to `price.updated` events
-* Streams decisions to connected frontend clients via **WebSockets**
-* Enables live dashboards and monitoring
+* Broadcasts decisions to connected frontend clients via WebSockets
 
----
-
-## Setup & Installation
+## 🚀 Setup & Installation
 
 ### Prerequisites
 
 * Node.js 18+
 * Google Gemini API Key
 
----
-
-### 1. Clone the Repository
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/abhasgawali/SurgePricingEngine.git
-cd motia-surge-pricing
+cd SurgePricingEngine
 ```
 
----
-
-### 2. Install Dependencies
+### 2. Install dependencies
 
 ```bash
 npm install
 ```
 
----
+### 3. Configuration
 
-### 3. Environment Configuration
-
-Create a `.env` file in the project root:
+Create a `.env` file in the root directory:
 
 ```bash
 cp .env.example .env
 ```
 
-Add your Gemini API key:
+Add your API key:
 
 ```env
 GEMINI_API_KEY=your_actual_key_here
 ```
-
----
 
 ### 4. Run the Development Server
 
@@ -108,21 +85,15 @@ GEMINI_API_KEY=your_actual_key_here
 npx motia dev
 ```
 
-The Motia Workbench will be available at:
+## 🧪 Usage / Demo Guide
 
-```
-http://localhost:3000
-```
+You can interact with the system entirely through the Motia Workbench (`http://localhost:3000`) or via `curl`.
 
----
+### 1. Simulate a Demand Surge
 
-## Usage / Demo
+Trigger a market signal to see how the AI reacts to high demand.
 
-Interact with the system through the **Motia Workbench UI** or via `curl`.
-
----
-
-### Simulate a Demand Surge
+**Request:**
 
 ```bash
 curl -X POST http://localhost:3000/api/simulate \
@@ -130,16 +101,18 @@ curl -X POST http://localhost:3000/api/simulate \
   -d '{ "type": "demand_surge", "value": 1.5 }'
 ```
 
-**Expected Behavior**
+**Expected Result (Logs):**
 
-* Market signal is ingested
-* Pricing agent evaluates context
-* Gemini returns a decision with reasoning
-* Updated price is broadcast to clients
+* `🔌 Manual Signal Injected`
+* `🤖 Agent Active: Analyzing demand_surge`
+* `🧠 Gemini Decision`: "{ "decision": "increase", "reasoning": "Demand is up 50%..." }"
+* `📡 Broadcasting to Frontend`
 
----
+### 2. Simulate Competitor Undercut
 
-### Simulate Competitor Undercutting
+Tell the system a competitor just dropped their price.
+
+**Request:**
 
 ```json
 {
@@ -148,14 +121,12 @@ curl -X POST http://localhost:3000/api/simulate \
 }
 ```
 
-The agent may lower or match pricing depending on current stock and demand context.
+**AI Behavior:**
+The agent will likely lower the price to match or slightly undercut, depending on the current stock level found in the State.
 
----
+## 🛠 Tech Stack
 
-## Technology Stack
-
-* **Runtime / Framework:** Motia
+* **Framework:** Motia (Event Loop, State Management, API)
 * **Language:** TypeScript
-* **AI Model:** Google Gemini 2.5 Flash
+* **AI Model:** Google Gemini 2.5 Flash (via REST API)
 * **Validation:** Zod
-* **Architecture:** Event-Driven (EDA)
