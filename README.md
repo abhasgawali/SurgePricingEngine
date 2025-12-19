@@ -120,14 +120,6 @@ node traffic-flood.js
 
 ## 🧠 AI Decision Logic
 
-The agent uses the following prompt strategy:
-
-> "You are an expert Revenue Management AI.
-> Rules:
->
-> * If demand surge > 10, raise price by 5-15%.
-> * If competitor undercuts, match only if margin allows (> $80).
-> * If stock < 100, implement scarcity pricing."
 
 ```
 ```
