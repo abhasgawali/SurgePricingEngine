@@ -19,10 +19,28 @@
       "steps/signals/simulate.step.ts": {
         "x": 0,
         "y": 0
+      }
+    }
+  },
+  {
+    "id": "frontend",
+    "config": {
+      "steps/outputs/connect-dashboard.step.ts": {
+        "x": 0,
+        "y": 0
+      }
+    }
+  },
+  {
+    "id": "ingestion",
+    "config": {
+      "steps/ingestion/view-tracker.step.ts": {
+        "x": 0,
+        "y": 36
       },
-      "steps/engine/pricer.step.ts": {
-        "x": 528,
-        "y": 32
+      "steps/ingestion/view-aggregator.step.ts": {
+        "x": 186,
+        "y": 0
       }
     }
   }

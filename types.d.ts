@@ -8,12 +8,17 @@ import { EventHandler, ApiRouteHandler, ApiResponse, MotiaStream, CronHandler } 
 
 declare module 'motia' {
   interface FlowContextStateStreams {
-    
+    'price_stream': MotiaStream<{ price: number; previousPrice?: number; competitorPrice?: number; reason?: string; decision: 'increase' | 'decrease' | 'hold'; timestamp: string; itemId?: string; stockLevel?: number; velocity?: number }>
   }
 
   interface Handlers {
     'SimulateSignal': ApiRouteHandler<{ type: 'demand_surge' | 'competitor_price' | 'stock_drop'; value: number; reason?: string }, unknown, { topic: 'market.signal'; data: { type: 'demand_surge' | 'competitor_price' | 'stock_drop'; value: number; reason?: string; timestamp: string; source: string } }>
+    'ConnectDashboard': ApiRouteHandler<Record<string, unknown>, unknown, never>
+    'MarketTicker': CronHandler<{ topic: 'market.signal'; data: { type: 'demand_surge' | 'competitor_price' | 'stock_drop'; value: number; reason?: string; timestamp: string; source: string } }>
+    'ViewTracker': EventHandler<{ itemId: string; userId?: string }, { topic: 'internal.view_recorded'; data: { itemId: string; userId?: string; ts: string } }>
+    'ViewAggregator': EventHandler<{ itemId: string; userId?: string; ts: string }, never>
     'PricingAgent': EventHandler<{ type: 'demand_surge' | 'competitor_price' | 'stock_drop'; value: number; reason?: string; timestamp: string; source: string }, never>
+    'ForceTick': ApiRouteHandler<{ reason?: string }, unknown, { topic: 'market.signal'; data: { type: 'demand_surge' | 'competitor_price' | 'stock_drop'; value: number; reason?: string; timestamp: string; source: string } }>
   }
     
 }
