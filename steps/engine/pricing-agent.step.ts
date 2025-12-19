@@ -4,7 +4,7 @@ import { z } from 'zod'
 export const config: EventConfig = {
   name: 'PricingAgent',
   type: 'event',
-  description: 'Autonomous AI agent that sets prices based on market signals using OpenAI',
+  description: 'Optimized pricing agent with significance gating',
   subscribes: ['market.signal'],
   input: z.object({
     type: z.enum(['demand_surge', 'competitor_price', 'stock_drop']),
@@ -17,138 +17,169 @@ export const config: EventConfig = {
   flows: ['intelligence']
 }
 
-export const handler: Handlers['PricingAgent'] = async (event, { logger, state, emit, streams }) => {
+const THRESHOLDS = {
+  demand_surge_pct: 0.15,      // 15% delta
+  competitor_price_pct: 0.05,  // 5% delta
+  stock_drop_pct: 0.20         // 20% drop
+}
+
+export const handler: Handlers['PricingAgent'] = async (
+  event,
+  { logger, state, streams }
+) => {
   const signal = event
-  logger.info(`🤖 Agent Active: Analyzing ${signal.type}`)
 
-  // 1. CHECK API KEY
-  const OPENAI_KEY = process.env.OPENAI_API_KEY
-  const GEMINI_KEY = process.env.GEMINI_API_KEY
-  
-  if (!OPENAI_KEY && !GEMINI_KEY) {
-    logger.error("❌ CRITICAL: No AI API Key found (OPENAI_API_KEY or GEMINI_API_KEY) in .env")
+  // 1. API KEY CHECK
+  const GROQ_KEY = process.env.GROQ_API_KEY
+  if (!GROQ_KEY) {
+    logger.error('❌ GROQ_API_KEY missing')
     return
   }
 
-  // 2. GATHER CONTEXT
-  const currentPrice = (await state.get<number>('pricing', 'current_price')) || 100
-  const competitorPrice = (await state.get<number>('pricing', 'competitor_price')) || 105
-  const stockLevel = (await state.get<number>('pricing', 'stock_level')) || 500
+  // 2. LOAD STATE
+  const currentPrice =
+    (await state.get<number>('pricing', 'current_price')) || 100
 
-  // 3. COOLDOWN
-  const lastTs = (await state.get<number>('pricing', 'last_pricing_ts')) || 0
-  const COOLDOWN_SECONDS = Number(process.env.PRICING_COOLDOWN_SECONDS) || 20
-  if (Date.now() - lastTs < COOLDOWN_SECONDS * 1000) {
-    logger.info('Skipping pricing - cooldown active')
+  const lastSignalValue =
+    (await state.get<number>('signals', signal.type)) ?? signal.value
+
+  // 3. SIGNIFICANCE CHECK (NO LLM YET)
+  const delta = signal.value - lastSignalValue
+  const pctChange =
+    lastSignalValue === 0 ? 0 : Math.abs(delta / lastSignalValue)
+
+  let isSignificant = false
+
+  switch (signal.type) {
+    case 'demand_surge':
+      isSignificant = pctChange >= THRESHOLDS.demand_surge_pct
+      break
+
+    case 'competitor_price':
+      isSignificant = pctChange >= THRESHOLDS.competitor_price_pct
+      break
+
+    case 'stock_drop':
+      isSignificant =
+        delta < 0 && pctChange >= THRESHOLDS.stock_drop_pct
+      break
+  }
+
+  if (!isSignificant) {
+    logger.info('⏭️ Skipping LLM — signal not significant', {
+      type: signal.type,
+      pctChange: (pctChange * 100).toFixed(2) + '%'
+    })
+
+    // Still update last seen signal
+    await state.set('signals', signal.type, signal.value)
     return
   }
 
-  // 4. PREPARE PROMPT
-  const systemPrompt = `You are an expert Revenue Management AI. Output valid JSON only.`
+  logger.info('🚨 Significant signal detected → calling LLM', {
+    type: signal.type,
+    pctChange: (pctChange * 100).toFixed(2) + '%'
+  })
+
+  // 4. PROMPTS
+  const systemPrompt =
+    'You are an expert Revenue Management AI. Output valid JSON only.'
+
   const userPrompt = `
-    CURRENT STATE: Our Price: $${currentPrice}, Competitor: $${competitorPrice}, Stock: ${stockLevel}
-    INCOMING SIGNAL: ${signal.type} value ${signal.value}
-    Task: Decide price change (increase, decrease, hold).
-    Rules:
-    - If demand surge > 10, consider raising price.
-    - If competitor undercuts, match only if > $80.
-    - Output JSON: { "new_price": number, "reasoning": "string", "decision": "increase" | "decrease" | "hold" }
-  `
+CURRENT PRICE: $${currentPrice}
+SIGNAL TYPE: ${signal.type}
+SIGNAL VALUE: ${signal.value}
+CHANGE VS LAST: ${(pctChange * 100).toFixed(2)}%
 
-  // 5. CALL AI MODEL
-  let result = { new_price: currentPrice, reasoning: 'Calculating...', decision: 'hold' } as const
+Decide price action.
+
+Rules:
+- Demand surge → increase if justified
+- Competitor price → match only if price > $80
+- Stock drop → increase if scarcity risk
+
+Return JSON ONLY:
+{
+  "new_price": number,
+  "reasoning": "string",
+  "decision": "increase" | "decrease" | "hold"
+}
+`
+
+  // 5. GROQ CALL
+  let result = {
+    new_price: currentPrice,
+    reasoning: 'No change',
+    decision: 'hold' as const
+  }
 
   try {
-    if (OPENAI_KEY) {
-      // --- OPENAI PATH ---
-      const MODEL = process.env.OPENAI_MODEL || 'gpt-4o'
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch(
+      'https://api.groq.com/openai/v1/chat/completions',
+      {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_KEY}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${GROQ_KEY}`
+        },
         body: JSON.stringify({
-          model: MODEL,
-          messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
-          response_format: { type: "json_object" },
-          temperature: 0.7
+          model: process.env.GROQ_MODEL || 'llama-3.1-70b-versatile',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.6
         })
-      })
+      }
+    )
 
-      if (!response.ok) throw new Error(`OpenAI Error: ${response.status}`)
-      const data = await response.json()
-      const content = JSON.parse(data.choices[0].message.content)
-      result = {
-        new_price: content.new_price,
-        reasoning: content.reasoning,
-        decision: content.decision
-      }
-    } else if (GEMINI_KEY) {
-      // --- GEMINI PATH ---
-      // Uses Gemini 1.5 Flash by default for speed
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`
-      
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{ text: systemPrompt + "\n" + userPrompt }]
-          }],
-          generationConfig: {
-            response_mime_type: "application/json"
-          }
-        })
-      })
-
-      if (!response.ok) {
-        const errText = await response.text()
-        throw new Error(`Gemini Error: ${response.status} - ${errText}`)
-      }
-      
-      const data = await response.json()
-      // Gemini returns candidates[0].content.parts[0].text
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text
-      if (!text) throw new Error("Gemini returned empty response")
-      
-      const content = JSON.parse(text)
-      result = {
-        new_price: content.new_price,
-        reasoning: content.reasoning,
-        decision: content.decision
-      }
+    if (!response.ok) {
+      throw new Error(`Groq ${response.status}`)
     }
-  } catch (error: any) {
-    logger.error('⚠️ AI call failed', { message: error?.message })
-    // Fallback if AI fails
-    if (signal.type === 'competitor_price' && signal.value < currentPrice) {
-      result = { new_price: signal.value - 0.5, reasoning: 'Competitor undercut detected (Fallback).', decision: 'decrease' }
+
+    const data = await response.json()
+    const content = JSON.parse(
+      data.choices[0].message.content
+    )
+
+    result = {
+      new_price: content.new_price,
+      reasoning: content.reasoning,
+      decision: content.decision
+    }
+  } catch (err: any) {
+    logger.error('⚠️ LLM failed, using fallback', {
+      error: err.message
+    })
+
+    // Deterministic fallback
+    if (signal.type === 'competitor_price') {
+      result = {
+        new_price: Math.max(signal.value - 0.5, 80),
+        reasoning: 'Competitor undercut (fallback)',
+        decision: 'decrease'
+      }
     }
   }
 
-  // 6. UPDATE STATE & EMIT
+  // 6. SAVE STATE
   await state.set('pricing', 'current_price', result.new_price)
   await state.set('pricing', 'last_pricing_ts', Date.now())
-  
-  const payload = {
-    price: result.new_price,
-    previousPrice: currentPrice,
-    competitorPrice: (signal.type === 'competitor_price' ? signal.value : competitorPrice),
-    reason: result.reasoning.substring(0, 250),
-    decision: result.decision,
-    timestamp: new Date().toISOString(),
-    stockLevel: stockLevel,
-    velocity: typeof (signal as any).value === 'number' ? (signal as any).value : 0
-  }
+  await state.set('signals', signal.type, signal.value)
 
-  // 7. PUBLISH TO STREAM (Using set for persistence)
-  // This matches 'useStreamItem' in the frontend
+  // 7. STREAM UPDATE
   try {
     await streams.price_stream.set(
-      'price:public', // Group ID
-      'current',      // Item ID
-      payload
+      'price:public',
+      'current',
+      {
+        price: result.new_price,
+        previousPrice: currentPrice,
+        decision: result.decision,
+        reason: result.reasoning,
+        timestamp: new Date().toISOString()
+      }
     )
-    logger.info('Stream updated', { price: result.new_price })
-  } catch (err: any) {
-    logger.warn('Stream publish failed', { error: err.message })
-  }
+  } catch {}
 }

@@ -22,7 +22,7 @@ async function sendSignal(i) {
 async function runFlood() {
   console.log(`🌊 STARTING TRAFFIC FLOOD to ${API_URL}...`);
   const promises = [];
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 10; i++) {
     promises.push(sendSignal(i));
     await new Promise(r => setTimeout(r, 20)); 
   }
