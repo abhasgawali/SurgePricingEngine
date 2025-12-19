@@ -1,132 +1,133 @@
-# Motia Surge Pricing Engine
+````markdown
+# 💸 SurgePricing.AI
 
-> **A real-time, event-driven pricing system powered by Google Gemini 2.5 Flash and Motia.**
+**A Real-Time Autonomous Pricing Engine powered by Motia & OpenAI GPT-4o.**
 
-![Motia](https://img.shields.io/badge/Backend-Motia-blueviolet?style=flat-square)
-![AI](https://img.shields.io/badge/AI-Gemini_2.5_Flash-4285F4?style=flat-square)
-![TypeScript](https://img.shields.io/badge/Language-TypeScript-blue?style=flat-square)
+SurgePricing.AI is an event-driven system that adjusts product prices in real-time based on market demand, competitor data, and stock levels. It uses **Motia** for backend orchestration and **WebSockets** for live frontend streaming.
 
-## 📖 Overview
 
-This project implements an autonomous pricing agent that adjusts product prices in real-time based on market signals (demand surges, competitor undercutting, and stock depletion).
+---
 
-Unlike traditional rule-based engines, this system uses **Generative AI** to analyze the context and provide a human-readable explanation for every pricing decision, making the logic transparent and audit-proof.
+## 🚀 Features
 
-## 🏗 Architecture
+* **⚡ Real-Time Telemetry:** Live visualization of price vs. demand velocity using high-frequency WebSockets.
+* **🧠 Autonomous AI Agent:** An OpenAI GPT-4o agent analyzes market signals (undercuts, surges) to make reasoning-based pricing decisions.
+* **🌊 Event-Driven Architecture:** Built on **Motia**, replacing complex microservices with simple "Steps" (Events, APIs, Streams).
+* **🛡️ Protective Guardrails:** Built-in cooldowns and stock protection logic to prevent AI hallucinations.
 
-The system follows a strict Event-Driven Architecture (EDA) orchestrated by the Motia runtime.
+---
 
-```mermaid
-graph LR
-    Input[API: /simulate] -->|Event: market.signal| Agent{Pricing Agent}
-    Agent -->|Fetch Context| State[(Motia KV Store)]
-    Agent -->|Prompt| AI[Gemini 2.5 Flash]
-    AI -->|Decision| Agent
-    Agent -->|Event: price.updated| Stream[Dashboard Stream]
-    Stream -->|Push| Client[Frontend UI]
-```
+## 🏗️ Architecture
 
-## 🔧 Core Components
+The system is built using the **Motia** framework (`npx motia create`), unifying the backend logic into a single event loop.
 
-### 1. Signal Ingestion (`simulate.step.ts`)
+1.  **Ingestion:** `view-tracker` captures user traffic and aggregates velocity.
+2.  **Orchestration:** `market-ticker` runs a Cron job to evaluate traffic density.
+3.  **Intelligence:** `pricing-agent` (The AI) wakes up on signals, queries GPT-4o, and decides the new price.
+4.  **Streaming:** `price_stream` pushes the new state directly to the React Frontend via WebSockets (Port 3000).
 
-* Exposes a REST API to inject market events manually
-* Validates input using Zod before emitting `market.signal`
+---
 
-### 2. The Intelligence Layer (`pricing-agent.step.ts`)
-
-* Subscribes to `market.signal`
-* Retrieves persistent state (Current Price, Competitor Price, Stock)
-* Prompts **Gemini 2.5 Flash** to act as a Revenue Manager
-* Decides on price changes and generates reasoning
-
-### 3. Real-time Delivery (`dashboard.stream.ts`)
-
-* Subscribes to `price.updated` events
-* Broadcasts decisions to connected frontend clients via WebSockets
-
-## 🚀 Setup & Installation
+## 🛠️ Setup & Installation
 
 ### Prerequisites
+* Node.js v18+
+* OpenAI API Key
 
-* Node.js 18+
-* Google Gemini API Key
-
-### 1. Clone the repository
-
+### 1. Clone & Install
 ```bash
-git clone https://github.com/abhasgawali/SurgePricingEngine.git
-cd SurgePricingEngine
-```
+git clone <your-repo-url>
+cd surge-pricing-engine
 
-### 2. Install dependencies
-
-```bash
+# Install Backend
 npm install
-```
 
-### 3. Configuration
+# Install Frontend
+cd client-side
+npm install
+cd ..
+````
+
+### 2. Configure Environment
 
 Create a `.env` file in the root directory:
 
-```bash
-cp .env.example .env
-```
-
-Add your API key:
-
 ```env
-GEMINI_API_KEY=your_actual_key_here
+# Backend .env
+OPENAI_API_KEY=sk-your-openai-key-here
+PRICING_COOLDOWN_SECONDS=10
+OPENAI_MODEL=gpt-4o
 ```
 
-### 4. Run the Development Server
+---
+
+## 🚦 How to Run the Demo
+
+### Step 1: Start the Backend (Motia)
+
+In the root folder:
 
 ```bash
-npx motia dev
+npm run dev
+# > Motia Workbench running at http://localhost:3000
 ```
 
-## 🧪 Usage / Demo Guide
+### Step 2: Start the Frontend (Vite)
 
-You can interact with the system entirely through the Motia Workbench (`http://localhost:3000`) or via `curl`.
-
-### 1. Simulate a Demand Surge
-
-Trigger a market signal to see how the AI reacts to high demand.
-
-**Request:**
+Open a new terminal in `client-side`:
 
 ```bash
-curl -X POST http://localhost:3000/api/simulate \
-  -H "Content-Type: application/json" \
-  -d '{ "type": "demand_surge", "value": 1.5 }'
+cd client-side
+npm run dev
+# > Local: http://localhost:5173
 ```
 
-**Expected Result (Logs):**
+### Step 3: Trigger a Demand Surge 🌊
 
-* `🔌 Manual Signal Injected`
-* `🤖 Agent Active: Analyzing demand_surge`
-* `🧠 Gemini Decision`: "{ "decision": "increase", "reasoning": "Demand is up 50%..." }"
-* `📡 Broadcasting to Frontend`
+The system reacts to traffic. Open a **third terminal** and run the simulation script to flood the engine with fake traffic events:
 
-### 2. Simulate Competitor Undercut
-
-Tell the system a competitor just dropped their price.
-
-**Request:**
-
-```json
-{
-  "type": "competitor_price",
-  "value": 95.00
-}
+```bash
+node traffic-flood.js
 ```
 
-**AI Behavior:**
-The agent will likely lower the price to match or slightly undercut, depending on the current stock level found in the State.
+**Watch the Dashboard:**
 
-## 🛠 Tech Stack
+1. The "Demand" (Blue Area) will spike.
+2. The AI Log will show "Analyzing Demand Surge".
+3. The Price (Green Line) will automatically increase to capture revenue.
 
-* **Framework:** Motia (Event Loop, State Management, API)
-* **Language:** TypeScript
-* **AI Model:** Google Gemini 2.5 Flash (via REST API)
-* **Validation:** Zod
+---
+
+## 📂 Project Structure
+
+```
+├── steps/                  # Motia Backend Logic
+│   ├── engine/
+│   │   └── pricing-agent.step.ts   # AI Logic (GPT-4o)
+│   ├── ingestion/
+│   │   └── view-tracker.step.ts    # Traffic Counter
+│   ├── streams/
+│   │   └── price.stream.ts         # WebSocket Definition
+│   └── orchestration/
+│       └── market-ticker.step.ts   # Cron Job
+├── client-side/            # React Frontend
+│   ├── src/App.tsx         # Dashboard UI (Recharts + Stream SDK)
+│   └── vite.config.ts      # Proxy Configuration
+└── traffic-flood.js        # Simulation Script
+```
+
+---
+
+## 🧠 AI Decision Logic
+
+The agent uses the following prompt strategy:
+
+> "You are an expert Revenue Management AI.
+> Rules:
+>
+> * If demand surge > 10, raise price by 5-15%.
+> * If competitor undercuts, match only if margin allows (> $80).
+> * If stock < 100, implement scarcity pricing."
+
+```
+```
