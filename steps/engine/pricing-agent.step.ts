@@ -16,14 +16,14 @@ export const config: EventConfig = {
   }),
   emits: [], // Price updates are sent via streams, not events
   flows: ['intelligence'],
-  virtualEmits: ['price.updated'] // Document price update flow (via streams)
+  virtualEmits: ['price.updated'] 
 }
 
 // Pricing configuration constants
 const PRICING_CONFIG = {
   basePrice: 100,          // Base price - never go below this
   minPrice: 80,            // Absolute minimum (emergency floor - 20% below base)
-  maxPrice: 500,          // Maximum allowed price
+  maxPrice: 500,           // Maximum allowed price
   defaultPrice: 100,       // Default starting price
   maxPriceChange: 0.25,    // Maximum 25% change per update
   competitorMargin: 0.02,  // 2% margin below competitor
@@ -96,6 +96,7 @@ export const handler: Handlers['PricingAgent'] = async (
     }
 
     // 3. UPDATE STATE BASED ON SIGNAL TYPE
+    // We update local variables and state immediately so the "Thinking" bubble has fresh data
     if (signal.type === 'competitor_price') {
       competitorPrice = signal.value
       await state.set('signals', 'competitor_price', signal.value)
@@ -108,6 +109,24 @@ export const handler: Handlers['PricingAgent'] = async (
       demandLevel = signal.value
       await state.set('signals', 'demand_surge', signal.value)
     }
+
+
+    await streams.price_stream.set('price:public', 'current', {
+      type: 'signal', // Frontend discriminates on this
+      signalType: signal.type,
+      signalValue: signal.value,
+      timestamp: new Date().toISOString(),
+      
+      // Send current context so Dashboard metrics update immediately
+      price: currentPrice,
+      competitorPrice: competitorPrice, 
+      stockLevel: ourStock,
+      velocity: demandLevel,
+      
+      decision: 'hold', 
+      reason: `Analyzing ${signal.type} signal...` 
+    })
+
 
     // 4. CALCULATE MARKET POSITION
     const stockStatus: 'low' | 'normal' | 'high' = ourStock < PRICING_CONFIG.lowStockThreshold ? 'low' :
@@ -150,107 +169,82 @@ export const handler: Handlers['PricingAgent'] = async (
       reason: signal.reason
     }
 
-    // 5. CALL LLM FOR PRICING DECISION WITH COMPREHENSIVE CONTEXT
+    // 6. CALL LLM FOR PRICING DECISION
     logger.info('🤖 Calling LLM for pricing decision with full market context', {
-      model: LLM_CONFIG.model,
-      signalType: signal.type,
-      signalValue: signal.value,
-      currentPrice,
-      competitorPrice: competitorPrice ?? 'unknown',
-      ourStock,
-      stockStatus,
-      demandLevel,
-      basePrice: PRICING_CONFIG.basePrice
+      model: LLM_CONFIG.model
     })
 
     let result = await callLLMForPricing(GROQ_KEY, context, logger, signal)
 
-    // 6. VALIDATE AND SANITIZE LLM RESPONSE
+    // 7. VALIDATE AND SANITIZE LLM RESPONSE
     result = validateAndSanitizePrice(result, currentPrice, logger)
 
     logger.info('✅ LLM Decision Received', {
       decision: result.decision,
-      oldPrice: currentPrice,
-      newPrice: result.new_price,
-      priceChange: ((result.new_price - currentPrice) / currentPrice * 100).toFixed(2) + '%',
-      reasoning: result.reasoning.substring(0, 100) + '...' // Truncate for logs
+      newPrice: result.new_price
     })
 
-    // 7. PERSIST NEW PRICE TO STATE
+    // 8. PERSIST NEW PRICE TO STATE
     try {
       await state.set('pricing', 'current_price', result.new_price)
       await state.set('pricing', 'last_pricing_ts', Date.now())
       await state.set('pricing', 'last_pricing_decision', result.decision)
       await state.set('pricing', 'last_pricing_reason', result.reasoning)
       await state.set('signals', signal.type, signal.value)
-      
-      logger.debug('State updated successfully', {
-        newPrice: result.new_price,
-        decision: result.decision
-      })
     } catch (stateError: any) {
-      logger.error('Failed to persist price to state', {
-        error: stateError.message,
-        newPrice: result.new_price
-      })
-      throw stateError // Critical - can't continue without saving price
+      logger.error('Failed to persist price to state', { error: stateError.message })
+      throw stateError 
     }
 
-    // 8. UPDATE STREAM FOR REAL-TIME CLIENTS
+  
     try {
       await streams.price_stream.set(
         'price:public',
         'current',
         {
+          type: 'decision', 
           price: result.new_price,
           previousPrice: currentPrice,
           decision: result.decision,
           reason: result.reasoning,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          
+        
+          competitorPrice: competitorPrice,
+          stockLevel: ourStock,
+          velocity: demandLevel,
+
+          signalType: signal.type,
+          signalValue: signal.value
         }
       )
-      logger.info('✅ Price stream updated for real-time clients', { 
-        newPrice: result.new_price,
-        previousPrice: currentPrice,
-        decision: result.decision
-      })
+      logger.info('✅ Price stream updated for real-time clients')
     } catch (streamError: any) {
       logger.error('⚠️ Failed to update price stream (non-critical)', {
-        error: streamError.message,
-        price: result.new_price
+        error: streamError.message
       })
-      // Don't throw - stream update is non-critical, price is already saved
     }
 
     const duration = Date.now() - startTime
     logger.info('✅ Pricing agent completed successfully', {
-      signalType: signal.type,
-      oldPrice: currentPrice,
-      newPrice: result.new_price,
-      decision: result.decision,
       duration: `${duration}ms`
     })
+
   } catch (error: any) {
     const duration = Date.now() - startTime
     logger.error('❌ Pricing agent failed', {
       error: error.message,
       stack: error.stack,
-      signalType: signal.type,
-      signalValue: signal.value,
-      currentPrice,
       duration: `${duration}ms`
     })
     
-    // Re-throw ConfigError to fail fast on configuration issues
     if (error instanceof ConfigError) {
       throw error
     }
-    
-    // For other errors, log and continue (event system handles retries)
   }
 }
 
-// Helper function: Call LLM for pricing decision with comprehensive market context
+
 async function callLLMForPricing(
   apiKey: string,
   context: {
@@ -317,7 +311,7 @@ FINANCIAL CONSTRAINTS:
 - Maximum Price Change: $${maxPriceChange.toFixed(2)} (${(context.maxChange * 100).toFixed(0)}% per update)
 - Price Range: $${context.priceRange.min} - $${context.priceRange.max}`
 
-  // Build strategic guidance
+
   let strategicGuidance = ''
 
   if (context.signalType === 'competitor_price' && context.competitorPrice !== null) {
@@ -454,7 +448,6 @@ Make a SMART decision based on ALL factors, not just the signal type.`
   return getFallbackPricing(context, signal, logger)
 }
 
-// Helper function: Get fallback pricing when LLM fails - uses comprehensive context
 function getFallbackPricing(
   context: {
     currentPrice: number
@@ -605,7 +598,6 @@ function getFallbackPricing(
   }
 }
 
-// Helper function: Validate and sanitize LLM response
 function validateAndSanitizePrice(
   result: { new_price: number; reasoning: string; decision: 'increase' | 'decrease' | 'hold' },
   currentPrice: number,

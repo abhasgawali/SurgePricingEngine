@@ -8,7 +8,7 @@ import { EventHandler, ApiRouteHandler, ApiResponse, MotiaStream, CronHandler } 
 
 declare module 'motia' {
   interface FlowContextStateStreams {
-    'price_stream': MotiaStream<{ price: number; previousPrice?: number; competitorPrice?: number; reason?: string; decision: 'increase' | 'decrease' | 'hold'; timestamp: string; itemId?: string; stockLevel?: number; velocity?: number }>
+    'price_stream': MotiaStream<{ type: 'signal' | 'decision'; price: number; previousPrice?: number; competitorPrice?: number | unknown; stockLevel?: number | unknown; velocity?: number | unknown; reason?: string; decision: 'increase' | 'decrease' | 'hold'; signalType?: string; signalValue?: number; timestamp: string; itemId?: string }>
   }
 
   interface Handlers {

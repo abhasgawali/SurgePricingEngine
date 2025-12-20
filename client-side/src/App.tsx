@@ -1,39 +1,44 @@
 import { useState, useEffect, useRef } from 'react'
-import { Wifi, WifiOff, Bot, Activity, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { Wifi, WifiOff, Bot, Activity, TrendingUp, TrendingDown, Minus, BrainCircuit, ArrowRightLeft } from 'lucide-react'
 import { Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, ComposedChart } from 'recharts'
-// 1. Import based on Tutorial
 import { MotiaStreamProvider, useStreamGroup } from '@motiadev/stream-client-react'
 
 // --- TYPES ---
 interface PriceUpdate {
-   id: string // Motia adds this automatically from the .set() call
+   id: string
+   type: 'signal' | 'decision'
    price: number
    previousPrice: number
-   competitorPrice: number
+   competitorPrice?: number | null 
+   stockLevel?: number | null      
+   velocity?: number | null        
    reason: string
    decision: 'increase' | 'decrease' | 'hold'
    timestamp: string
-   stockLevel?: number
-   velocity?: number
+   signalType?: string
+   signalValue?: number
+}
+
+interface ChatMessage {
+   id: string
+   role: 'ai' | 'market' // Differentiate users
+   timestamp: string
+   text: string
+   meta?: any
 }
 
 function Dashboard() {
    const [graphData, setGraphData] = useState<any[]>([])
-   const [messages, setMessages] = useState<any[]>([])
+   const [messages, setMessages] = useState<ChatMessage[]>([])
+   const [isThinking, setIsThinking] = useState(false)
 
-   // 2. Subscribe to the price stream
-   // useStreamGroup returns {data, event} where event is null when disconnected
    const { data: items, event } = useStreamGroup<PriceUpdate>({
       streamName: 'price_stream',
       groupId: 'price:public'
    })
 
-   // Derive connection status from event
    const isConnected = event !== null
-
-   // We grab the item named 'current' (or just the first one)
    const streamData = items?.find(i => i.id === 'current')
-
    const scrollRef = useRef<HTMLDivElement>(null)
 
    // 3. REACT TO DATA
@@ -44,34 +49,57 @@ function Dashboard() {
          const newData = {
             time: new Date(streamData.timestamp).toLocaleTimeString([], { minute: '2-digit', second: '2-digit' }),
             price: streamData.price,
-            competitor: streamData.competitorPrice,
-            demand: streamData.velocity ?? 0
+            competitor: streamData.competitorPrice || null, // Handle nulls for chart
+            demand: streamData.velocity || 0
          }
+         // Prevent duplicate points if timestamp is same
+         if (prev.length > 0 && prev[prev.length-1].time === newData.time) return prev
+         
          const newArr = [...prev, newData]
          if (newArr.length > 20) newArr.shift()
          return newArr
       })
 
-      setMessages(prev => {
-         if (prev.length > 0 && prev[prev.length - 1].timestamp === streamData.timestamp) return prev;
-         return [...prev, {
-            id: Date.now().toString(),
-            role: 'ai',
-            timestamp: streamData.timestamp,
-            text: streamData.reason,
-            meta: { decision: streamData.decision, price: streamData.price }
-         }]
-      })
+      // Chat Logic
+      if (streamData.type === 'signal') {
+         setIsThinking(true) // Show thinking bubble
+         setMessages(prev => {
+            // Dedup
+            if (prev.length > 0 && prev[prev.length - 1].timestamp === streamData.timestamp && prev[prev.length-1].role === 'market') return prev
+            
+            return [...prev, {
+               id: Date.now().toString(),
+               role: 'market',
+               timestamp: streamData.timestamp,
+               text: `Incoming Signal: ${streamData.signalType?.replace('_', ' ').toUpperCase()} detected. Value: ${streamData.signalValue}`,
+            }]
+         })
+      } 
+      else if (streamData.type === 'decision') {
+         setIsThinking(false) // Hide thinking bubble
+         setMessages(prev => {
+            // Dedup
+            if (prev.length > 0 && prev[prev.length - 1].timestamp === streamData.timestamp && prev[prev.length-1].role === 'ai') return prev
+
+            return [...prev, {
+               id: Date.now().toString(),
+               role: 'ai',
+               timestamp: streamData.timestamp,
+               text: streamData.reason,
+               meta: { decision: streamData.decision, price: streamData.price }
+            }]
+         })
+      }
    }, [streamData])
 
    // Auto-scroll chat
    useEffect(() => {
       if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-   }, [messages])
+   }, [messages, isThinking])
 
    const getStockColor = (level: number) => {
-      if (level < 100) return 'text-red-400'
-      if (level < 300) return 'text-yellow-400'
+      if (level < 200) return 'text-red-400'
+      if (level < 500) return 'text-yellow-400'
       return 'text-green-400'
    }
 
@@ -83,6 +111,7 @@ function Dashboard() {
 
    return (
       <div className="min-h-screen bg-[#0B1121] text-white p-6 font-sans flex flex-col">
+         {/* HEADER */}
          <header className="flex flex-col md:flex-row justify-between items-center mb-8 border-b border-slate-800/50 pb-6 shrink-0">
             <div>
                <h1 className="text-4xl md:text-6xl font-black tracking-tight bg-gradient-to-r from-blue-400 via-purple-500 to-pink-500 bg-clip-text text-transparent mb-2">
@@ -101,7 +130,9 @@ function Dashboard() {
          </header>
 
          <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 flex-1 min-h-0">
+            {/* LEFT COLUMN: METRICS & CHART */}
             <div className="xl:col-span-7 flex flex-col gap-8 min-h-0">
+               {/* MAIN KPI CARD */}
                <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 shadow-2xl relative overflow-hidden group">
                   <div className={`absolute top-0 right-0 w-[500px] h-[500px] -translate-y-1/2 translate-x-1/2 rounded-full blur-[120px] opacity-20 transition-colors duration-700 ${streamData?.decision === 'increase' ? 'bg-green-500' :
                      streamData?.decision === 'decrease' ? 'bg-red-500' : 'bg-blue-500'
@@ -122,11 +153,15 @@ function Dashboard() {
                      <div className="flex flex-row md:flex-col gap-4 w-full md:w-auto">
                         <div className="flex-1 bg-slate-950/60 p-4 rounded-xl border border-slate-800 min-w-[160px] text-right">
                            <div className="text-xs text-slate-500 uppercase font-bold mb-1">Competitor</div>
-                           <div className="font-mono text-2xl text-white">${streamData?.competitorPrice?.toFixed(2) ?? '---'}</div>
+                           {/* FIXED: Now correctly displays data from stream */}
+                           <div className="font-mono text-2xl text-white">
+                              {streamData?.competitorPrice ? `$${streamData.competitorPrice.toFixed(2)}` : '---'}
+                           </div>
                         </div>
                         <div className="flex-1 bg-slate-950/60 p-4 rounded-xl border border-slate-800 min-w-[160px] text-right">
                            <div className="text-xs text-slate-500 uppercase font-bold mb-1">Stock Level</div>
-                           <div className={`font-mono text-2xl ${getStockColor(streamData?.stockLevel ?? 500)}`}>
+                           {/* FIXED: Now correctly displays data from stream */}
+                           <div className={`font-mono text-2xl ${getStockColor(streamData?.stockLevel ?? 0)}`}>
                               {streamData?.stockLevel ?? '---'}
                            </div>
                         </div>
@@ -134,6 +169,7 @@ function Dashboard() {
                   </div>
                </div>
 
+               {/* CHART CARD */}
                <div className="flex-1 bg-slate-900/50 border border-slate-800 rounded-3xl p-6 flex flex-col shadow-xl">
                   <div className="flex justify-between items-center mb-6 px-2">
                      <h3 className="font-bold text-slate-300 flex items-center gap-2 tracking-wide">
@@ -174,6 +210,7 @@ function Dashboard() {
                </div>
             </div>
 
+            {/* RIGHT COLUMN: STRATEGY CHAT LOG */}
             <div className="xl:col-span-5 bg-[#0f1623] border border-slate-800 rounded-3xl flex flex-col overflow-hidden h-full max-h-[calc(100vh-140px)] shadow-2xl">
                <div className="p-6 bg-slate-900/90 border-b border-slate-800 flex justify-between items-center backdrop-blur z-10">
                   <div className="flex items-center gap-3">
@@ -189,23 +226,44 @@ function Dashboard() {
                   {messages.length === 0 && (
                      <div className="text-center text-slate-600 mt-20 text-sm">Waiting for market events...</div>
                   )}
+                  
                   {messages.map((msg, i) => (
-                     <div key={i} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                     <div key={i} className={`animate-in fade-in slide-in-from-bottom-4 duration-500 flex flex-col ${msg.role === 'market' ? 'items-start' : 'items-end'}`}>
+                        {/* Header for Message */}
                         <div className="flex items-center gap-2 mb-2">
                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                               {new Date(msg.timestamp).toLocaleTimeString()}
                            </span>
-                           <span className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold ${msg.meta.decision === 'increase' ? 'bg-green-500/20 text-green-400' :
-                              msg.meta.decision === 'decrease' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'
-                              }`}>
-                              {msg.meta.decision}
-                           </span>
+                           {msg.role === 'ai' && (
+                              <span className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold ${msg.meta?.decision === 'increase' ? 'bg-green-500/20 text-green-400' :
+                                 msg.meta?.decision === 'decrease' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'
+                                 }`}>
+                                 {msg.meta?.decision}
+                              </span>
+                           )}
                         </div>
-                        <div className="bg-gradient-to-br from-slate-800 to-slate-900/50 p-5 rounded-2xl rounded-tl-none border border-slate-700/50 shadow-lg text-slate-200 text-sm leading-relaxed">
+
+                        {/* Message Bubble */}
+                        <div className={`p-5 rounded-2xl border shadow-lg text-sm leading-relaxed max-w-[90%] ${
+                           msg.role === 'market' 
+                              ? 'bg-slate-800/80 border-slate-700 text-slate-300 rounded-tl-none' 
+                              : 'bg-gradient-to-br from-indigo-900/50 to-slate-900/50 border-indigo-500/30 text-indigo-100 rounded-tr-none'
+                        }`}>
+                           {msg.role === 'market' && <ArrowRightLeft size={16} className="inline mr-2 text-slate-500"/>}
                            {msg.text}
                         </div>
                      </div>
                   ))}
+
+                  {/* THINKING BUBBLE */}
+                  {isThinking && (
+                     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 flex flex-col items-end">
+                        <div className="bg-slate-900/50 border border-slate-800 p-4 rounded-2xl rounded-tr-none flex items-center gap-3">
+                           <BrainCircuit size={18} className="text-purple-400 animate-pulse" />
+                           <span className="text-xs text-slate-400 font-mono">Optimizing revenue strategy...</span>
+                        </div>
+                     </div>
+                  )}
                </div>
             </div>
          </div>
@@ -215,7 +273,6 @@ function Dashboard() {
 
 function App() {
    return (
-      // Testing with /ws path
       <MotiaStreamProvider address="ws://localhost:3000">
          <Dashboard />
       </MotiaStreamProvider>
