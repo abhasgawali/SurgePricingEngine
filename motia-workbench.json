@@ -32,6 +32,19 @@
     }
   },
   {
+    "id": "intelligence",
+    "config": {
+      "steps/orchestration/market-ticker.step.ts": {
+        "x": 0,
+        "y": 0
+      },
+      "steps/engine/pricing-agent.step.ts": {
+        "x": 350,
+        "y": 22
+      }
+    }
+  },
+  {
     "id": "ingestion",
     "config": {
       "steps/ingestion/view-tracker.step.ts": {
@@ -39,8 +52,17 @@
         "y": 36
       },
       "steps/ingestion/view-aggregator.step.ts": {
-        "x": 186,
-        "y": 0
+        "x": 434,
+        "y": 34
+      }
+    }
+  },
+  {
+    "id": "debug",
+    "config": {
+      "steps/debug/force-tick.step.ts": {
+        "x": -13,
+        "y": 11
       }
     }
   }

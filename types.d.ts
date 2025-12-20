@@ -12,13 +12,14 @@ declare module 'motia' {
   }
 
   interface Handlers {
-    'SimulateSignal': ApiRouteHandler<{ type: 'demand_surge' | 'competitor_price' | 'stock_drop'; value: number; reason?: string }, unknown, { topic: 'market.signal'; data: { type: 'demand_surge' | 'competitor_price' | 'stock_drop'; value: number; reason?: string; timestamp: string; source: string } }>
-    'ConnectDashboard': ApiRouteHandler<Record<string, unknown>, unknown, never>
-    'MarketTicker': CronHandler<{ topic: 'market.signal'; data: { type: 'demand_surge' | 'competitor_price' | 'stock_drop'; value: number; reason?: string; timestamp: string; source: string } }>
-    'ViewTracker': EventHandler<{ itemId: string; userId?: string }, { topic: 'internal.view_recorded'; data: { itemId: string; userId?: string; ts: string } }>
-    'ViewAggregator': EventHandler<{ itemId: string; userId?: string; ts: string }, never>
-    'PricingAgent': EventHandler<{ type: 'demand_surge' | 'competitor_price' | 'stock_drop'; value: number; reason?: string; timestamp: string; source: string }, never>
-    'ForceTick': ApiRouteHandler<{ reason?: string }, unknown, { topic: 'market.signal'; data: { type: 'demand_surge' | 'competitor_price' | 'stock_drop'; value: number; reason?: string; timestamp: string; source: string } }>
+    'SimulateSignal': ApiRouteHandler<{ type: 'demand_surge' | 'competitor_price' | 'stock_drop' | 'stock_increase'; value: number; reason?: string }, ApiResponse<200, { ok: boolean; message: string; signalId?: string }> | ApiResponse<400, { error: string; data?: Array<unknown> }> | ApiResponse<500, { error: string; data?: Array<unknown> }>, never>
+    'ConnectDashboard': ApiRouteHandler<Record<string, unknown>, ApiResponse<200, { url: string; streamName: string; groupId: string }> | ApiResponse<500, { error: string }>, never>
+    'MarketTicker': CronHandler<{ topic: 'market.signal'; data: { type: 'demand_surge' | 'competitor_price' | 'stock_drop' | 'stock_increase'; value: number; reason?: string; timestamp: string; source: string } }>
+    'ViewTracker': EventHandler<{ itemId: string; userId?: string }, { topic: 'internal.view_recorded'; data: { itemId: string; userId?: string | unknown; ts: string } }>
+    'ViewAggregator': EventHandler<{ itemId: string; userId?: string | unknown; ts: string }, never>
+    'PricingAgent': EventHandler<{ type: 'demand_surge' | 'competitor_price' | 'stock_drop' | 'stock_increase'; value: number; reason?: string; timestamp: string; source: string }, never>
+    'Reset': ApiRouteHandler<Record<string, unknown>, ApiResponse<200, { ok: boolean; message: string; resetValues: { currentPrice: number; competitorPrice: number; stockLevel: number } }> | ApiResponse<500, { error: string; data?: Array<unknown> }>, never>
+    'ForceTick': ApiRouteHandler<{ reason?: string; value?: number }, ApiResponse<200, { ok: boolean; message: string; signalId: string }> | ApiResponse<400, { error: string; data?: Array<unknown> }> | ApiResponse<500, { error: string; data?: Array<unknown> }>, { topic: 'market.signal'; data: { type: 'demand_surge' | 'competitor_price' | 'stock_drop' | 'stock_increase'; value: number; reason?: string; timestamp: string; source: string } }>
   }
     
 }
